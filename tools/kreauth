@@ -1,0 +1,203 @@
+#!/usr/bin/env python2
+# coding=utf-8
+
+from __future__ import print_function
+
+import os, time, threading, subprocess
+
+def reauth_krb_renew( cmd_kinit, **kwargs ):
+    if kwargs["verbose"]: print( "reauth_krb_renew" )
+
+    subprocess.check_call(
+        [ cmd_kinit, '--renewable', '--renew' ],
+    )
+
+def reauth_krb_password( cmd_kinit, krb_password, **kwargs ):
+    if kwargs["verbose"]: print( "reauth_krb_password" )
+
+    p = subprocess.Popen(
+        [ cmd_kinit, '--password-file=STDIN' ],
+        stdin = subprocess.PIPE,
+    )
+    p.communicate( krb_password.encode( ) )
+
+def reauth_krb( krb_renew = None, **kwargs ):
+    if krb_renew: reauth_krb_renew( **kwargs )
+    else:         reauth_krb_password( **kwargs )
+
+
+def reauth_afs( cmd_aklog, **kwargs ):
+    if kwargs["verbose"]: print( "reauth_afs" )
+
+    subprocess.check_call(
+        [ cmd_aklog ],
+    )
+
+
+def reauth( do_krb, do_afs, **kwargs ):
+    if do_krb: reauth_krb( **kwargs )
+    if do_afs: reauth_afs( **kwargs )
+
+
+def run_loop( period, **kwargs ):
+    while True:
+        # reauthenticate
+        reauth( **kwargs )
+
+        # sleep for #period seconds
+        time.sleep( period )
+
+
+def run( wait_for_pid, **kwargs ):
+    if wait_for_pid is None:
+        # if #wait_for_pid is not set, we run the loop in the main thread
+        run_loop( **kwargs )
+    else:
+        # Start run_loop in a seperate thread.
+
+        t = threading.Thread(
+            name = "run_loop", target = run_loop, kwargs = kwargs
+        )
+        # The thread should be a daemon thread, because we want the process
+        # to exit after we found the wait_for_pid process to be dead.
+        # A process exits after it's last non-daemon thread exited.
+        t.daemon = True 
+        t.start( )
+
+        # Wait for the pid to exit. Unfortunately this needs to be a "busy
+        # wait" ... This also means that, if the pid is reused in the time
+        # we sleep, we won't notice the other process to be dead.
+
+        proc_path = os.path.join( '/proc', str( wait_for_pid ) )
+        while   t.is_alive( ) and os.path.exists( proc_path ):
+            # wait a few seconds till next check
+            time.sleep( 1 )
+
+    
+import sys, argparse, getpass, signal
+
+def handle_sigint( signum, frame ):
+    sys.exit(1)
+
+def main( args ):
+    parser = argparse.ArgumentParser( )
+    parser.add_argument(
+        "--no-krb",
+        action = "store_false",
+        help = "Don't reauthenticate Kerberos ticket.",
+        dest = "do_krb",
+    )
+    parser.add_argument(
+        "--no-afs",
+        action = "store_false",
+        help = "Don't reauthenticate AFS token",
+        dest = "do_afs",
+    )
+    parser.add_argument(
+        "--no-krb-renew",
+        action = "store_false",
+        help = (  "Don't renew Kerberos ticket, get initial ticket. "
+                  "This will ask for the password on stdin." ),
+        dest = "krb_renew"
+    )
+    parser.add_argument(
+        "--period",
+        type = int,
+        default = 3600 * 12,
+        help = "Period of time between reauthentications in seconds.",
+    )
+    parser.add_argument(
+        "--daemonize",
+        action = "store_true",
+        help = "Fork and run in the background."
+    )
+    parser.add_argument(
+        "--wait-for-pid",
+        type = int,
+        default = None,
+        help = (  "The reauthentication process will wait for the process "
+                  "with this pid to exit and exit after it." ),
+    )
+    parser.add_argument(
+        "--verbose",
+        action = "store_true",
+        help = (  "Print some debugging output." ),
+    )
+    cmd_args = parser.parse_args( args[1:] )
+
+    kwargs = {
+        "cmd_kinit": '/usr/bin/kinit',
+        "cmd_aklog": '/usr/bin/aklog',
+    }
+    kwargs.update( vars( cmd_args ) )
+
+    # if krb_renew is False we need to get the password from the user
+    if not cmd_args.krb_renew:
+        try:
+            kwargs["krb_password"] = getpass.getpass( "Password: " )
+        except KeyboardInterrupt:
+            sys.exit( 1 )
+    else:
+        kwargs["krb_password"] = None
+
+    # if daemonize is set we fork to background
+    if cmd_args.daemonize:
+        # creating a process hierachy like this
+        # ┏╸main
+        # ┃ * process started by the user of the scirpt
+        # ┃ * terminates immediately
+        # ┗━┳╸leader
+        #   ┃ * creates new process group
+        #   ┃ * parent process for the actual daemon process
+        #   ┃ * terminates immediately so children become orphaned and are
+        #   ┃   adopted by the init process - this prevents the daemon
+        #   ┃   from becoming a zombie
+        #   ┗━━╸daemon
+        #       * the daemon process
+        #       * reauthenticates
+
+        try:
+            pid = os.fork( )
+        except OSError as ex:
+            raise Exception(
+                "fork failed: %s [%d]" % ( ex.strerror, ex.errno )
+            )
+
+        ## process: main
+
+        if pid == 0:
+            ## process: leader
+
+            # leader gets it's own process group
+            os.setsid( )
+            
+            try:
+                pid = os.fork( )
+            except OSError as ex:
+                raise Exception(
+                    "fork failed: %s [%d]" % ( ex.strerror, ex.errrno )
+                )
+
+            if pid == 0:
+                ## process: daemon
+                pass
+            else:
+                ## process: leader
+                os._exit( 0 )
+
+        else:
+            ## process: main
+            os._exit( 0 )
+    else:
+        # daemonize is not set
+
+        # we want to "gracefully exit" on CTRL-C
+        signal.signal( signal.SIGINT, handle_sigint )
+
+    ## process: daemon (if daemonize is set)
+
+    run( **kwargs )
+
+
+main( sys.argv )
+
