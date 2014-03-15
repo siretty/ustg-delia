@@ -19,20 +19,27 @@ from __future__ import print_function
 
 import os, time, threading, subprocess
 
-def reauth_krb_renew( cmd_kinit, **kwargs ):
+def reauth_krb_renew( cmd_kinit, krb_principal, **kwargs ):
     if kwargs["verbose"]: print( "reauth_krb_renew" )
 
-    subprocess.check_call(
-        [ cmd_kinit, '--renewable', '--renew' ],
-    )
+    cmd = [ cmd_kinit, '--renewable', '--renew' ]
+    if krb_principal is not None:
+        cmd.append( krb_principal )
 
-def reauth_krb_password( cmd_kinit, krb_password, **kwargs ):
+    if kwargs["verbose"]: print( ' '.join( cmd ) )
+
+    subprocess.check_call( cmd )
+
+def reauth_krb_password( cmd_kinit, krb_principal, krb_password, **kwargs ):
     if kwargs["verbose"]: print( "reauth_krb_password" )
 
-    p = subprocess.Popen(
-        [ cmd_kinit, '--password-file=STDIN' ],
-        stdin = subprocess.PIPE,
-    )
+    cmd = [ cmd_kinit, '--password-file=STDIN' ]
+    if krb_principal is not None:
+        cmd.append( krb_principal )
+
+    if kwargs["verbose"]: print( "calling: " + ' '.join( cmd ) )
+
+    p = subprocess.Popen( cmd, stdin = subprocess.PIPE )
     p.communicate( krb_password.encode( ) )
 
 def reauth_krb( krb_renew = None, **kwargs ):
@@ -40,12 +47,20 @@ def reauth_krb( krb_renew = None, **kwargs ):
     else:         reauth_krb_password( **kwargs )
 
 
-def reauth_afs( cmd_aklog, **kwargs ):
+def reauth_afs( cmd_aklog, afs_cell, krb_realm, **kwargs ):
     if kwargs["verbose"]: print( "reauth_afs" )
 
-    subprocess.check_call(
-        [ cmd_aklog ],
-    )
+    cmd = [ cmd_aklog ]
+    if afs_cell is not None:
+        cmd.append( '-cell' )
+        cmd.append( afs_cell )
+        if krb_realm is not None:
+            cmd.append( '-k' )
+            cmd.append( krb_realm )
+
+    if kwargs["verbose"]: print( "calling: " + ' '.join( cmd ) )
+
+    subprocess.check_call( cmd )
 
 
 def reauth( do_krb, do_afs, **kwargs ):
@@ -113,6 +128,28 @@ def main( args ):
         help = (  "Don't renew Kerberos ticket, get initial ticket. "
                   "This will ask for the password on stdin." ),
         dest = "krb_renew"
+    )
+    parser.add_argument(
+        "--krb-principal",
+        default = None,
+        help = (  "Specify the Kerberos principal to get tickets for. "
+                  "If omitted the kinit program will choose the principal "
+                  "for you (this does almost always the right thing)." ),
+    )
+    parser.add_argument(
+        "--krb-realm",
+        default = None,
+        help = (  "Specifiy the Kerberos realm of the ticket to be used to "
+                  "get the AFS token. If omitted the aklog program will "
+                  "choose the realm for you (this does almost always the "
+                  "right thing)." ),
+    )
+    parser.add_argument(
+        "--afs-cell",
+        default = None,
+        help = (  "Specify the AFS cell to get tokens for. "
+                  "If omitted the aklog program will choose the cell for "
+                  "you (this does almost always the right thing)." ),
     )
     parser.add_argument(
         "--period",
