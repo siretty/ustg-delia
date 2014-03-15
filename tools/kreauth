@@ -20,24 +20,22 @@ from __future__ import print_function
 import os, time, threading, subprocess
 
 def reauth_krb_renew( cmd_kinit, krb_principal, **kwargs ):
-    if kwargs["verbose"]: print( "reauth_krb_renew" )
-
     cmd = [ cmd_kinit, '--renewable', '--renew' ]
     if krb_principal is not None:
         cmd.append( krb_principal )
 
-    if kwargs["verbose"]: print( ' '.join( cmd ) )
+    if kwargs["verbose"]:
+        print( "calling: " + ' '.join( cmd ) )
 
     subprocess.check_call( cmd )
 
 def reauth_krb_password( cmd_kinit, krb_principal, krb_password, **kwargs ):
-    if kwargs["verbose"]: print( "reauth_krb_password" )
-
     cmd = [ cmd_kinit, '--password-file=STDIN' ]
     if krb_principal is not None:
         cmd.append( krb_principal )
 
-    if kwargs["verbose"]: print( "calling: " + ' '.join( cmd ) )
+    if kwargs["verbose"]:
+        print( "calling: " + ' '.join( cmd ) )
 
     p = subprocess.Popen( cmd, stdin = subprocess.PIPE )
     p.communicate( krb_password.encode( ) )
@@ -48,8 +46,6 @@ def reauth_krb( krb_renew = None, **kwargs ):
 
 
 def reauth_afs( cmd_aklog, afs_cell, krb_realm, **kwargs ):
-    if kwargs["verbose"]: print( "reauth_afs" )
-
     cmd = [ cmd_aklog ]
     if afs_cell is not None:
         cmd.append( '-cell' )
@@ -58,7 +54,8 @@ def reauth_afs( cmd_aklog, afs_cell, krb_realm, **kwargs ):
             cmd.append( '-k' )
             cmd.append( krb_realm )
 
-    if kwargs["verbose"]: print( "calling: " + ' '.join( cmd ) )
+    if kwargs["verbose"]:
+        print( "calling: " + ' '.join( cmd ) )
 
     subprocess.check_call( cmd )
 
@@ -103,7 +100,7 @@ def run( wait_for_pid, **kwargs ):
             time.sleep( 1 )
 
     
-import sys, argparse, getpass, signal
+import sys, argparse, getpass, signal, resource
 
 def handle_sigint( signum, frame ):
     sys.exit(1)
@@ -231,7 +228,26 @@ def main( args ):
 
             if pid == 0:
                 ## process: daemon
-                pass
+
+                # We chdir to the root-direcotry so we don't keep random
+                # directory fds open, which might block other programs.
+                os.chdir( '/' )
+
+                # Close all file descriptors. 
+                maxfd = resource.getrlimit( resource.RLIMIT_NOFILE )
+                if maxfd == resource.RLIM_INFINITY: maxfd = 1024
+                for fd in range( 0, maxfd ):
+                    try:            os.close( fd )
+                    except OSError: pass
+
+                # Open /dev/null and redirect stdout and stderr
+                # This opens the lowest free file descriptor, which is 0
+                # (after closing all other fds). We want open fds for
+                # std{in,out,err} because most output functions might
+                # behave strange (at least) when these are not available.
+                open( os.devnull, os.O_RDWR )
+                os.dup2( 0, 1 )
+                os.dup2( 0, 2 )
             else:
                 ## process: leader
                 os._exit( 0 )
