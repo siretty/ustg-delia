@@ -234,7 +234,7 @@ def main( args ):
                 os.chdir( '/' )
 
                 # Close all file descriptors. 
-                maxfd = resource.getrlimit( resource.RLIMIT_NOFILE )
+                maxfd = resource.getrlimit( resource.RLIMIT_NOFILE )[1]
                 if maxfd == resource.RLIM_INFINITY: maxfd = 1024
                 for fd in range( 0, maxfd ):
                     try:            os.close( fd )
@@ -245,7 +245,9 @@ def main( args ):
                 # (after closing all other fds). We want open fds for
                 # std{in,out,err} because most output functions might
                 # behave strange (at least) when these are not available.
-                open( os.devnull, os.O_RDWR )
+                
+
+                os.open( os.devnull, os.O_RDWR )
                 os.dup2( 0, 1 )
                 os.dup2( 0, 2 )
             else:
