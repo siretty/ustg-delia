@@ -161,7 +161,7 @@ def main( argv ):
 
     # add empty dictionaries for standard chains (causes the default policy
     # to be emitted)
-    for table_name, chains in default_polices.items( ):
+    for table_name, chains in default_policies.items( ):
         if table_name not in rules:
             rules[table_name] = { }
 
