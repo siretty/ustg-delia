@@ -85,7 +85,10 @@ def read_generator( rule ):
     content = None
 
     try:
-        content = subprocess.check_output( rule['paths'][2] )
+        # call the generator with the table and chain names as arguments
+        cmd = [ rule['paths'][2] ]
+        cmd.extend( rule['names'] )
+        content = subprocess.check_output( cmd )
     except subprocess.CalledProcessError as e:
         content = "# command exited with code {0}:\n".format(
             e.returncode
