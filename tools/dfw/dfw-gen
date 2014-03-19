@@ -106,15 +106,30 @@ def read_generator( rule ):
     return output
 
 
+default_policies = {
+    'filter': {
+        'INPUT': 'DROP',
+        'OUTPUT': 'ACCEPT',
+        'FORWARD': 'DROP',
+    },
+    'nat': {
+        'PREROUTING': 'ACCEPT',
+        'POSTROUTING': 'ACCEPT',
+        'OUTPUT': 'ACCEPT',
+    },
+    'mangle': {
+        'PREROUTING': 'ACCEPT',
+        'INPUT': 'ACCEPT',
+        'OUTPUT': 'ACCEPT',
+        'FORWARD': 'ACCEPT',
+        'POSTROUTING': 'ACCEPT',
+    },
+}
+
 def get_policy( table_name, chain_name ):
-    if table_name == 'filter':
-        if chain_name == 'INPUT':
-            return 'DROP'
-        elif chain_name in ( 'OUTPUT', 'FORWARD' ):
-            return 'ACCEPT'
-    elif table_name == 'nat':
-        if chain_name in ( 'PREROUTING', 'POSTROUTING' ):
-            return 'ACCEPT'
+    if table_name in default_policies:
+        if chain_name in default_policies[table_name]:
+            return default_policies[table_name][chain_name]
 
     # default is no policy
     return ''
@@ -131,16 +146,30 @@ def main( argv ):
     rules = { }
     
     for rule in files: 
+        # select table (add if it doesn't exist)
         if rule['names'][0] not in rules:
             rules[rule['names'][0]] = { }
         table = rules[rule['names'][0]]
 
+        # add chain (add if it doesn't exist)
         if rule['names'][1] not in table:
             table[rule['names'][1]] = [ ]
         chain = table[rule['names'][1]]
 
+        # add the rule
         chain.append( rule )
 
+    # add empty dictionaries for standard chains (causes the default policy
+    # to be emitted)
+    for table_name, chains in default_polices.items( ):
+        if table_name not in rules:
+            rules[table_name] = { }
+
+        for chain_name in chains.keys( ):
+            if chain_name not in rules[table_name]:
+                rules[table_name][chain_name] = { }
+
+    # output the rules
     for table_name, chains in rules.items( ):
         sys.stdout.write( "*{0}\n".format( table_name ) )
 
