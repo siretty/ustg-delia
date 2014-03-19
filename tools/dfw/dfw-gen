@@ -167,7 +167,7 @@ def main( argv ):
 
         for chain_name in chains.keys( ):
             if chain_name not in rules[table_name]:
-                rules[table_name][chain_name] = { }
+                rules[table_name][chain_name] = [ ] 
 
     # output the rules
     for table_name, chains in rules.items( ):
