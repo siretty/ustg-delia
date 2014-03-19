@@ -164,6 +164,8 @@ def main( argv ):
                 output = read_fun( rule )
                 sys.stdout.writelines( output )
 
+        sys.stdout.write( "COMMIT\n" )
+
 
 import sys
 
