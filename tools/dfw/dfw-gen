@@ -1,0 +1,171 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+
+import os, os.path, subprocess, operator
+
+
+PATH_CFG = './etc'
+PATH_CFG_RULES = os.path.join( PATH_CFG, 'rules' )
+
+EXT_RULEFILE = '.rules'
+
+
+def find_rule_files( path_cfg_rules ):
+    rules = [ ]
+
+    for table_name in os.listdir( path_cfg_rules ):
+        table_path = os.path.join( path_cfg_rules, table_name )
+
+        if not os.path.isdir( table_path ): continue
+
+        for chain_name in os.listdir( table_path ):
+            chain_path = os.path.join( table_path, chain_name )
+
+            if not os.path.isdir( chain_path ): continue
+
+            for file_name in os.listdir( chain_path ):
+                file_path = os.path.join( chain_path, file_name )
+
+                rule = {
+                    'type': None,
+                    'names': ( table_name, chain_name, file_name ),
+                    'paths': ( table_path, chain_path, file_path ),
+                }
+
+                if file_name == "policy":
+                    # default policy (will cause anything ONLY for
+                    # iptables policies)
+                    # CURRENTLY NOT USED
+                    rule['type'] = 'pr'
+                    rules.append( rule )
+                elif os.path.splitext( file_name )[1] == EXT_RULEFILE:
+                    # rule files
+                    if os.access( file_path, os.X_OK ):
+                        # generated rules
+                        rule['type'] = 'rx'
+                        rules.append( rule )
+                    else:
+                        # static rules
+                        rule['type'] = 'rr'
+                        rules.append( rule )
+
+    return rules
+
+def read_rules( rule, content ):
+    output = [ ]
+    prefix = '--append {1} '.format( rule['names'][0], rule['names'][1] )
+
+    for line in content.split( '\n' ):
+        line_stripped = line.strip( )
+        if len( line_stripped ) == 0 or line_stripped.startswith( '#' ):
+            output.append( line + '\n' )
+        else:
+            output.append( prefix + line + '\n' )
+
+    return output
+
+def read_rulefile( rule ):
+    output = [ ]
+    output.append( '## FILE ## R ## BEG ## {0}\n'.format( rule['paths'][2] ) )
+
+    with open( rule['paths'][2] ) as f:
+        content = f.read( ).decode( ).strip( '\n' )
+        output.extend(
+            read_rules( rule, content )
+        )
+
+    output.append( '## FILE ## R ## END ## {0}\n'.format( rule['paths'][2] ) )
+    return output
+
+def read_generator( rule ):
+    output = [ ]
+    output.append( '## FILE ## X ## BEG ## {0}\n'.format( rule['paths'][2] ) )
+
+    content = None
+
+    try:
+        content = subprocess.check_output( rule['paths'][2] )
+    except subprocess.CalledProcessError as e:
+        content = "# command exited with code {0}:\n".format(
+            e.returncode
+        )
+        command_output = e.output.decode( ).strip( '\n' )
+        lines = [ '# ' + l for l in command_output.split( '\n' ) ]
+        content += '\n'.join( lines )
+    except OSError as e:
+        content = "# command could not be executed ({0}): {1}\n".format(
+            e.errno, e.strerror
+        )
+
+    output.extend(
+        read_rules( rule, content )
+    )
+
+    output.append( '## FILE ## X ## END ## {0}\n'.format( rule['paths'][2] ) )
+    return output
+
+
+def get_policy( table_name, chain_name ):
+    if table_name == 'filter':
+        if chain_name == 'INPUT':
+            return 'DROP'
+        elif chain_name in ( 'OUTPUT', 'FORWARD' ):
+            return 'ACCEPT'
+    elif table_name == 'nat':
+        if chain_name in ( 'PREROUTING', 'POSTROUTING' ):
+            return 'ACCEPT'
+
+    # default is no policy
+    return ''
+
+
+def main( argv ):
+
+    files = find_rule_files( PATH_CFG_RULES )
+
+    # dictionary structure:
+    #   table_name:
+    #     chain_name:
+    #       rule_list
+    rules = { }
+    
+    for rule in files: 
+        if rule['names'][0] not in rules:
+            rules[rule['names'][0]] = { }
+        table = rules[rule['names'][0]]
+
+        if rule['names'][1] not in table:
+            table[rule['names'][1]] = [ ]
+        chain = table[rule['names'][1]]
+
+        chain.append( rule )
+
+    for table_name, chains in rules.items( ):
+        sys.stdout.write( "*{0}\n".format( table_name ) )
+
+        # create chains
+        for chain_name in chains.keys( ):
+            msg = ":{0} {1} [0:0]\n".format(
+                chain_name, get_policy( table_name, chain_name )
+            )
+            sys.stdout.write( msg )
+
+        # print rules
+        for chain_name, rule_list in chains.items( ):
+            # sort rules by filename
+            rule_list.sort( key = operator.itemgetter( 'names' ) )
+
+            for rule in rule_list:
+                read_fun = None
+                if    rule['type'] == 'rr': read_fun = read_rulefile
+                elif  rule['type'] == 'rx': read_fun = read_generator
+
+                output = read_fun( rule )
+                sys.stdout.writelines( output )
+
+
+import sys
+
+main( sys.argv )
+
