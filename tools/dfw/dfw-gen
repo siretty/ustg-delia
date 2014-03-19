@@ -108,21 +108,21 @@ def read_generator( rule ):
 
 default_policies = {
     'filter': {
-        'INPUT': 'DROP',
-        'OUTPUT': 'ACCEPT',
-        'FORWARD': 'DROP',
+        'INPUT':        'DROP',
+        'OUTPUT':       'DROP',
+        'FORWARD':      'DROP',
     },
     'nat': {
-        'PREROUTING': 'ACCEPT',
-        'POSTROUTING': 'ACCEPT',
-        'OUTPUT': 'ACCEPT',
+        'PREROUTING':   'ACCEPT',
+        'POSTROUTING':  'ACCEPT',
+        'OUTPUT':       'ACCEPT',
     },
     'mangle': {
-        'PREROUTING': 'ACCEPT',
-        'INPUT': 'ACCEPT',
-        'OUTPUT': 'ACCEPT',
-        'FORWARD': 'ACCEPT',
-        'POSTROUTING': 'ACCEPT',
+        'PREROUTING':   'ACCEPT',
+        'INPUT':        'ACCEPT',
+        'OUTPUT':       'ACCEPT',
+        'FORWARD':      'ACCEPT',
+        'POSTROUTING':  'ACCEPT',
     },
 }
 
